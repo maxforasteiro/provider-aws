@@ -148,7 +148,25 @@ func (e *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 
 	cr.Status.SetConditions(xpv1.Creating())
 
+	var token *string
+	if aws.ToBool(cr.Spec.ForProvider.AuthEnabled) {
+		t, err := password.Generate()
+		if err != nil {
+			return managed.ExternalCreation{}, awsclient.Wrap(err, errGenerateAuthToken)
+		}
+		token = &t
+	}
 	_, err := e.client.CreateCacheCluster(ctx, elasticache.GenerateCreateCacheClusterInput(cr.Spec.ForProvider, meta.GetExternalName(cr)))
+	if err != nil {
+		return managed.ExternalCreation{}, awsclient.Wrap(resource.Ignore(elasticache.IsAlreadyExists, err), errCreateReplicationGroup)
+	}
+	if token != nil {
+		return managed.ExternalCreation{
+			ConnectionDetails: managed.ConnectionDetails{
+				xpv1.ResourceCredentialsSecretPasswordKey: []byte(*token),
+			},
+		}, nil
+	}
 
 	return managed.ExternalCreation{}, awsclient.Wrap(err, errCreateCacheCluster)
 }
